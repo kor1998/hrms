@@ -2076,3 +2076,13 @@
 .dash .ci-guard > div { display: flex; gap: 8px; }
 .dash .md.ci { position: relative; }
 .dash .lw-f select { width: 100%; box-sizing: border-box; height: 40px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--control); color: var(--ink); font: 400 14px/20px var(--font); }
+
+/* ---------- responsive polish: phones ---------- */
+@media (max-width: 640px) {
+  .dash .ap-list li { padding: 14px 12px; gap: 10px 12px; }
+  .dash .ap-main { flex: 1 1 calc(100% - 120px); min-width: 140px; }
+  .dash .ap-impact { flex: 1 1 100%; width: auto; flex-direction: row; align-items: baseline; gap: 8px; }
+  .dash .ap-main p { flex-wrap: wrap; }
+  .dash .mp-search, .dash .tc-bar .mp-search { min-width: 0; max-width: none; flex: 1 1 100%; }
+  .dash .sh-bar-r { width: 100%; }
+}
