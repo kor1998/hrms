@@ -247,6 +247,20 @@ function formatTime(d, h24 = false) {
   return { main: `${pad(h)}:${pad(d.getMinutes())}`, sec: pad(d.getSeconds()), ap: h24 ? '' : ap }
 }
 
+const SHIFT_MS = 9 * 3600e3 // 9:30 AM – 6:30 PM
+const BREAK_MS = 87 * 60e3 // the demo lunch break, taken once the first session is long enough
+const SHIFT_START = (() => { const d = new Date(); d.setHours(9, 30, 0, 0); return d.getTime() })()
+const fmtHM = (ms) => { const m = Math.max(0, Math.floor(ms / 60000)); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` }
+
+// a day's punches -> worked / break time. Gaps between sessions count as break.
+function tally(sessions, nowMs) {
+  const spans = sessions.map((x) => ({ a: x.in, b: x.out ?? nowMs }))
+  const gross = spans.reduce((n, x) => n + Math.max(0, x.b - x.a), 0)
+  const gaps = spans.slice(1).reduce((n, x, i) => n + Math.max(0, x.a - spans[i].b), 0)
+  const lunch = Math.min(BREAK_MS, Math.max(0, gross - 60 * 60e3))
+  return { workedMs: Math.max(0, gross - lunch), breakMs: lunch + gaps, early: Math.max(0, SHIFT_START - sessions[0].in) }
+}
+
 function Card({ icon, title, action, onAction, tone = 'indigo', children, className = '' }) {
   return (
     <section className={`card ${className}`}>
@@ -407,6 +421,15 @@ export default function Dashboard({ onLogout }) {
   const [moreOpen, setMoreOpen] = useState(() => { try { return localStorage.getItem('hrms-dash-more') === 'open' } catch { return false } })
   const toggleMore = () => setMoreOpen((o) => { const n = !o; try { localStorage.setItem('hrms-dash-more', n ? 'open' : 'closed') } catch { /* storage unavailable */ } return n })
   const now = useClock()
+  const [sessions, setSessions] = useState(() => { const d = new Date(); d.setHours(9, 28, 0, 0); return [{ in: Math.min(d.getTime(), Date.now()), out: null }] })
+  const clockedIn = sessions[sessions.length - 1].out == null
+  const punchAt = (d) => formatTime(new Date(d))
+  const clockIn = () => { setSessions((a) => [...a, { in: Date.now(), out: null }]); toast({ title: 'Clocked in', text: 'Your hours are being recorded.', duration: 1800 }) }
+  const clockOut = () => { setSessions((a) => a.map((x, i) => (i === a.length - 1 ? { ...x, out: Date.now() } : x))); toast({ title: 'Clocked out', text: 'Your hours for today are recorded.' }) }
+  const day = tally(sessions, now.getTime())
+  const pct = (ms) => Math.min(100, (ms / SHIFT_MS) * 100)
+  const wPct = pct(day.workedMs)
+  const lastPunch = sessions[sessions.length - 1]
 
   useEffect(() => {
     if (!profileOpen) return undefined
@@ -750,20 +773,22 @@ export default function Dashboard({ onLogout }) {
             {/* ---------- Hero: Today ---------- */}
             <section className="hero">
               <div className="hero-top">
-                <span className="live"><i /> Working · since 09:28 AM</span>
+                <span className={clockedIn ? 'live' : 'live off'}><i /> {clockedIn ? `Working · since ${punchAt(lastPunch.in).main} ${punchAt(lastPunch.in).ap}` : `Clocked out · ${punchAt(lastPunch.out).main} ${punchAt(lastPunch.out).ap}`}</span>
                 <div className="hero-actions">
                   <span className="loc"><Icon name="pin" size={14} /> Office</span>
                   <button className="hero-icon" type="button" aria-label="Refresh"><Icon name="refresh" size={15} /></button>
-                  <HoldButton className="clock-out" aria-label="Clock out (press and hold)" title="Press and hold to clock out" onConfirm={() => toast({ title: 'Clocked out', text: 'Your hours for today are recorded.' })}><Icon name="logout" size={15} /> Clock out</HoldButton>
+                  {clockedIn
+                    ? <HoldButton className="clock-out" aria-label="Clock out (press and hold)" title="Press and hold to clock out" onConfirm={clockOut}><Icon name="logout" size={15} /> Clock out</HoldButton>
+                    : <button type="button" className="clock-in" onClick={clockIn}><Icon name="signin" size={15} /> Clock in</button>}
                 </div>
               </div>
 
               <div className="hero-mid">
                 <div className="hero-time">{t.main}<span className="sec">:{t.sec}</span>{t.ap && <span className="ap">{t.ap}</span>}</div>
                 <div className="hero-meta">
-                  <div><b>5h 01m</b><span>worked today</span></div>
-                  <div><b>56%</b><span>of shift</span></div>
-                  <div><b>1h 27m</b><span>break</span></div>
+                  <div><b>{fmtHM(day.workedMs)}</b><span>worked today</span></div>
+                  <div><b>{Math.round(wPct)}%</b><span>of shift</span></div>
+                  <div><b>{fmtHM(day.breakMs)}</b><span>break</span></div>
                 </div>
               </div>
 
@@ -787,10 +812,10 @@ export default function Dashboard({ onLogout }) {
               </div>
 
               <div className="hero-stats">
-                <div><span><Icon name="signin" size={14} />Check-in</span><b>09:28 AM</b></div>
+                <div><span><Icon name="signin" size={14} />Check-in</span><b>{punchAt(sessions[0].in).main} {punchAt(sessions[0].in).ap}</b></div>
                 <div><span><Icon name="clock" size={14} />Shift ends in</span><b><Countdown target={SHIFT_END} units={['h', 'm', 's']} variant="compact" label="Time until your shift ends" completeLabel="Shift over" className="bare" /></b></div>
-                <div><span><Icon name="coffee" size={14} />Break taken</span><b>1h 27m</b></div>
-                <div><span><Icon name="logout" size={14} />Expected out</span><b>06:28 PM</b></div>
+                <div><span><Icon name="coffee" size={14} />Break taken</span><b>{fmtHM(day.breakMs)}</b></div>
+                <div><span><Icon name="logout" size={14} />Expected out</span><b>{punchAt(sessions[0].in + SHIFT_MS).main} {punchAt(sessions[0].in + SHIFT_MS).ap}</b></div>
               </div>
             </section>
 
